@@ -762,11 +762,9 @@
                     </div>
                 </h2>
                 <textarea id="p2mihData" placeholder="Tempel data QRIS di sini
-Format P2MIH: reference_no (kolom 2), amount (kolom 3), remark/user ID (kolom 16)
-Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput="updateStatus()"></textarea>
+Format: Merchant Name, Method, ReferenceNo, RRN, Amount" oninput="updateStatus()"></textarea>
                 <div class="info-box">
-                    <i class="fas fa-info-circle"></i> <strong>Format QRIS MINERA:</strong> reference_no (kolom 2), amount (kolom 3), remark (kolom 16)<br>
-                    <strong>Format QRIS P2MIH:</strong> Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)
+                    <i class="fas fa-info-circle"></i> <strong>Format QRIS:</strong> Merchant Name, Method, ReferenceNo, RRN, Amount
                 </div>
             </div>
         </div>
@@ -877,7 +875,7 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
                         <thead>
                             <tr>
                                 <th><i class="fas fa-user"></i> User ID</th>
-                                <th><i class="fas fa-receipt"></i> Order ID</th>
+                                <th><i class="fas fa-receipt"></i> Order ID / ReferenceNo</th>
                                 <th><i class="fas fa-money-bill-wave"></i> Selisih</th>
                                 <th><i class="fas fa-info-circle"></i> Keterangan</th>
                                 <th><i class="fas fa-tools"></i> Aksi</th>
@@ -902,9 +900,9 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
         <div class="instructions">
             <h3><i class="fas fa-book"></i> Petunjuk Penggunaan:</h3>
             <ul>
-                <li><i class="fas fa-angle-right"></i> Tempel data untuk <span class="highlight">ADMIN IDN</span> di kolom pertama</li>
-                <li><i class="fas fa-angle-right"></i> Tempel data untuk <span class="highlight">ZONAMAIN</span> di kolom kedua</li>
-                <li><i class="fas fa-angle-right"></i> Tempel data untuk <span class="highlight">QRIS</span> di kolom ketiga (mendukung format QRIS P2MIH dan QRIS MINERA)</li>
+                <li><i class="fas fa-angle-right"></i> Tempel data untuk <span class="highlight">ADMIN IDN</span> di kolom pertama (format: TO, BY, Coin)</li>
+                <li><i class="fas fa-angle-right"></i> Tempel data untuk <span class="highlight">ZONAMAIN</span> di kolom kedua (format: ORDER ID, RRN, CLIENT NAME, USER ID, OPERATOR, JUMLAH)</li>
+                <li><i class="fas fa-angle-right"></i> Tempel data untuk <span class="highlight">QRIS</span> di kolom ketiga (format: Merchant Name, Method, ReferenceNo, RRN, Amount)</li>
                 <li><i class="fas fa-angle-right"></i> Klik tombol <span class="highlight">Hitung Data</span> untuk memproses informasi</li>
                 <li><i class="fas fa-angle-right"></i> Gunakan tombol <i class="fas fa-undo"></i> untuk mengembalikan data sebelumnya</li>
                 <li><i class="fas fa-angle-right"></i> Klik ikon <i class="fas fa-copy"></i> untuk menyalin data yang siap ditempel di docsheet</li>
@@ -1025,6 +1023,7 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
         // Bersihkan format mata uang
         function cleanCurrency(value) {
             if (typeof value === 'string') {
+                // Hapus titik sebagai pemisah ribuan, ganti koma dengan titik untuk desimal
                 value = value.replace(/\./g, '').replace(',', '.');
             }
             return parseFloat(value) || 0;
@@ -1098,37 +1097,7 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
             return { total, orders, users };
         }
         
-        // Fungsi untuk mendeteksi format P2MIH
-        function detectP2mihFormat(data) {
-            const lines = data.trim().split('\n');
-            if (lines.length === 0) return 'unknown';
-            
-            // Cek baris pertama atau kedua untuk mendeteksi format
-            for (let i = 0; i < Math.min(2, lines.length); i++) {
-                const line = lines[i].trim();
-                if (!line) continue;
-                
-                const parts = line.split('\t');
-                
-                // Format baru: minimal 16 kolom, kolom 2 adalah reference_no (UUID format)
-                if (parts.length >= 16) {
-                    // Cek apakah kolom 2 (index 1) seperti UUID
-                    const col2 = parts[1];
-                    if (col2.includes('-') && col2.length >= 30) {
-                        return 'new'; // Format QRIS P2MIH
-                    }
-                }
-                
-                // Format lama: minimal 12 kolom
-                if (parts.length >= 12 && parts.length < 16) {
-                    return 'old'; // Format QRIS MINERA
-                }
-            }
-            
-            return 'unknown';
-        }
-        
-        // Parse data P2MIH - UPDATED untuk mendukung 2 format
+        // Parse data QRIS dengan format baru
         function parseP2mihData(data) {
             const lines = data.trim().split('\n');
             const orders = {};
@@ -1140,54 +1109,37 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
                 return { total: 0, orders: {}, users: {} };
             }
             
-            // Deteksi format
-            const format = detectP2mihFormat(data);
-            console.log('Detected P2MIH format:', format);
-            
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
                 
-                // Skip header jika ada
-                if (i === 0 && (line.includes('Date') || line.includes('Amount') || line.includes('id') || line.includes('reference_no'))) {
+                // Skip header jika ada (kolom judul)
+                if (i === 0 && (line.includes('Merchant') || line.includes('ReferenceNo'))) {
                     continue;
                 }
                 
                 const parts = line.split('\t');
                 
-                if (format === 'new') {
-                    // Format QRIS P2MIH: reference_no (kolom 2), amount (kolom 3), remark (kolom 16)
-                    if (parts.length < 16) continue;
+                // Format baru: Merchant Name (kolom 1), Method (kolom 2), ReferenceNo (kolom 3), RRN (kolom 4), Amount (kolom 5)
+                if (parts.length >= 5) {
+                    const referenceNo = parts[2]; // ReferenceNo di kolom 3
+                    const amount = cleanCurrency(parts[4]); // Amount di kolom 5
                     
-                    const orderId = parts[1]; // reference_no di kolom 2 (index 1)
-                    const amount = cleanCurrency(parts[2]); // amount di kolom 3 (index 2)
+                    // Untuk user ID, kita bisa ekstrak dari Merchant Name atau gunakan placeholder
+                    // Asumsi: Merchant Name bisa berisi kode user atau kita gunakan "QRIS"
+                    let userId = parts[0]; // Gunakan Merchant Name sebagai user ID sementara
                     
-                    // Ekstrak user ID dari remark di kolom 16 (index 15)
-                    // Format: "jpbosku02||7xMw8wc9WmOj4dKaqFgp||234"
-                    // Hanya ambil bagian sebelum "||"
-                    let userId = parts[15];
-                    if (userId && userId.includes('||')) {
-                        userId = userId.split('||')[0];
-                    }
-                    
-                    orders[orderId] = { userId, amount };
+                    orders[referenceNo] = { userId, amount };
                     users[userId] = (users[userId] || 0) + amount;
                     total += amount;
+                } else if (parts.length >= 4) {
+                    // Fallback jika hanya 4 kolom (mungkin tanpa Method)
+                    const referenceNo = parts[1]; // Asumsi ReferenceNo di kolom 2
+                    const amount = cleanCurrency(parts[3]); // Asumsi Amount di kolom 4
                     
-                } else if (format === 'old') {
-                    // Format QRIS MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)
-                    if (parts.length < 12) continue;
+                    let userId = parts[0];
                     
-                    const orderId = parts[3]; // Order ID di kolom 4 (index 3)
-                    const amount = cleanCurrency(parts[5]); // Amount di kolom 6 (index 5)
-                    
-                    // Ekstrak user ID dari kolom 12 (index 11)
-                    let userId = parts[11];
-                    if (userId && userId.includes('||')) {
-                        userId = userId.split('||')[0];
-                    }
-                    
-                    orders[orderId] = { userId, amount };
+                    orders[referenceNo] = { userId, amount };
                     users[userId] = (users[userId] || 0) + amount;
                     total += amount;
                 }
@@ -1317,13 +1269,23 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
             
             unprocessedFunds = [];
             
-            // Cek dana di QRIS yang belum ada di ZONAMAIN
-            for (const [orderId, p2mihData] of Object.entries(p2mihResult.orders)) {
-                if (!zonaResult.orders[orderId]) {
+            // Cek dana di QRIS yang belum ada di ZONAMAIN (berdasarkan ReferenceNo)
+            for (const [referenceNo, qrisData] of Object.entries(p2mihResult.orders)) {
+                let foundInZona = false;
+                
+                // Cari di ZONAMAIN berdasarkan ReferenceNo atau orderId
+                for (const [zonaOrderId, zonaData] of Object.entries(zonaResult.orders)) {
+                    if (zonaOrderId === referenceNo || zonaOrderId.includes(referenceNo) || referenceNo.includes(zonaOrderId)) {
+                        foundInZona = true;
+                        break;
+                    }
+                }
+                
+                if (!foundInZona) {
                     unprocessedFunds.push({
-                        orderId,
-                        userId: p2mihData.userId,
-                        diff: p2mihData.amount,
+                        orderId: referenceNo,
+                        userId: qrisData.userId || 'QRIS',
+                        diff: qrisData.amount,
                         description: 'Dana tercetak di QRIS, tidak tercetak di ZONAMAIN dan belum terproses di ADMIN IDN'
                     });
                 }
@@ -1344,12 +1306,28 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
                 }
             }
             
+            // Cek dana di ZONAMAIN yang belum ada di ADMIN IDN
+            for (const [userId, zonaAmount] of Object.entries(zonaResult.users)) {
+                const adminAmount = adminResult.users[userId] || 0;
+                const diff = zonaAmount - adminAmount;
+                
+                if (diff > 0 && adminAmount === 0) {
+                    // Ini berarti dana di ZONAMAIN belum diproses di ADMIN IDN
+                    unprocessedFunds.push({
+                        orderId: 'N/A',
+                        userId,
+                        diff: -diff,
+                        description: 'Dana tercetak di ZONAMAIN, belum terproses di ADMIN IDN'
+                    });
+                }
+            }
+            
             // PERBAIKAN: Filter untuk hanya menampilkan satu user ID dari ADMIN IDN jika hanya ada satu
             let fundsToDisplay = [...unprocessedFunds];
             
             // Cari selisih yang berasal dari ADMIN IDN (dengan deskripsi tertentu) dan memiliki user ID
             const adminIdnDifferences = unprocessedFunds.filter(fund => 
-                fund.description.includes('ADMIN IDN') && fund.userId && fund.userId !== 'N/A'
+                fund.description.includes('ADMIN IDN') && fund.userId && fund.userId !== 'N/A' && fund.userId !== 'QRIS'
             );
             
             // Jika hanya ada satu selisih dari ADMIN IDN, maka hanya tampilkan itu
@@ -1415,7 +1393,7 @@ Format MINERA: Order ID (kolom 4), Amount (kolom 6), User ID (kolom 12)" oninput
             }
             
             // Header untuk spreadsheet
-            let textToCopy = "User ID\tOrder ID\tSelisih\n";
+            let textToCopy = "User ID\tOrder ID/ReferenceNo\tSelisih\n";
             
             // Tambahkan setiap baris data
             for (const fund of unprocessedFunds) {
